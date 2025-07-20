@@ -1,17 +1,21 @@
 # main.py
 # This is the main file for the Discord Translator Bot.
 # It uses discord.py for bot interaction and googletrans for translation.
+# Includes a Flask web server to keep the bot alive on hosting platforms like Render.
 #
 # Setup:
 # 1. Make sure you have a .env file in the same directory.
 # 2. The .env file should contain one line: BOT_TOKEN="YOUR_DISCORD_BOT_TOKEN"
 # 3. Run the bot using `python bot.py`
+
 import json
 import discord
 import os
 import asyncio
 from dotenv import load_dotenv
 from googletrans import Translator, LANGUAGES
+from flask import Flask
+from threading import Thread
 
 # --- Configuration ---
 
@@ -20,12 +24,11 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # A dictionary to map flag emojis to language codes
-# This is not exhaustive but covers many common flags.
 FLAG_TO_LANG = {
-    '🇦🇫': 'ps', '🇦🇱': 'sq', '🇩🇿': 'ar', '🇦🇸': 'en', '🇦🇩': 'ca', '🇦🇴': 'pt', '🇦🇮': 'en',
+    '🇦🇫': 'ps', '🇦🇱': 'sq', '🇩🇿': 'ar', '🇦🇸': 'en', '🇦�': 'ca', '🇦🇴': 'pt', '🇦🇮': 'en',
     '🇦🇬': 'en', '🇦🇷': 'es', '🇦🇲': 'hy', '🇦🇼': 'nl', '🇦🇺': 'en', '🇦🇹': 'de', '🇦🇿': 'az',
     '🇧🇸': 'en', '🇧🇭': 'ar', '🇧🇩': 'bn', '🇧🇧': 'en', '🇧🇾': 'be', '🇧🇪': 'nl', '🇧🇿': 'en',
-    '🇧🇯': 'fr', '🇧🇲': 'en', '🇧🇹': 'dz', '🇧🇴': 'es', '🇧�': 'bs', '🇧🇼': 'en', '🇧🇷': 'pt',
+    '🇧🇯': 'fr', '🇧🇲': 'en', '🇧🇹': 'dz', '🇧🇴': 'es', '🇧🇦': 'bs', '🇧🇼': 'en', '🇧🇷': 'pt',
     '🇮🇴': 'en', '🇻🇬': 'en', '🇧🇳': 'ms', '🇧🇬': 'bg', '🇧🇫': 'fr', '🇧🇮': 'fr', '🇰🇭': 'km',
     '🇨🇲': 'en', '🇨🇦': 'en', '🇨🇻': 'pt', '🇰🇾': 'en', '🇨🇫': 'fr', '🇹🇩': 'fr', '🇨🇱': 'es',
     '🇨🇳': 'zh-cn', '🇨🇽': 'en', '🇨🇨': 'ms', '🇨🇴': 'es', '🇰🇲': 'ar', '🇨🇬': 'fr', '🇨🇩': 'fr',
@@ -82,7 +85,6 @@ SETTINGS_FILE = "settings.json"
 def save_settings():
     """Saves the auto_translate_channels dictionary to a file."""
     try:
-        # We need to convert integer keys to strings for JSON
         string_keys_channels = {str(k): v for k, v in auto_translate_channels.items()}
         with open(SETTINGS_FILE, "w") as f:
             json.dump(string_keys_channels, f, indent=4)
@@ -97,14 +99,13 @@ def load_settings():
         if os.path.exists(SETTINGS_FILE):
             with open(SETTINGS_FILE, "r") as f:
                 loaded_channels = json.load(f)
-                # JSON saves keys as strings, so we convert them back to integers
                 auto_translate_channels = {int(k): v for k, v in loaded_channels.items()}
                 print("Settings loaded successfully.")
         else:
             print("No settings file found, starting with empty settings.")
     except Exception as e:
         print(f"Error loading settings: {e}")
-        auto_translate_channels = {} # Start fresh if file is corrupted
+        auto_translate_channels = {}
 
 # --- Event Handlers ---
 
@@ -182,7 +183,7 @@ async def on_message(message: discord.Message):
             print(f"An error occurred during auto-translation: {e}")
 
 
-# --- Slash Commands (Corrected) ---
+# --- Slash Commands ---
 
 @bot.slash_command(
     name="set_channel",
@@ -193,7 +194,6 @@ async def set_channel(ctx: discord.ApplicationContext, target_language: str):
     """Command to set up a channel for auto-translation."""
     target_language = target_language.lower().strip()
 
-    # First, validate the language code to make sure it's real
     if target_language not in LANGUAGES:
         await ctx.respond(
             f"'{target_language}' is not a valid language code. Please use a valid code (e.g., 'en', 'es', 'ja').",
@@ -201,9 +201,8 @@ async def set_channel(ctx: discord.ApplicationContext, target_language: str):
         )
         return
 
-    # If the code is valid, store the configuration
     auto_translate_channels[ctx.channel.id] = target_language
-    save_settings() # Now we save the valid setting
+    save_settings()
 
     lang_name = LANGUAGES.get(target_language, "this language").capitalize()
     await ctx.respond(f"✅ This channel will now automatically translate all messages to **{lang_name}**.")
@@ -218,16 +217,30 @@ async def remove_channel(ctx: discord.ApplicationContext):
     """Command to remove a channel from auto-translation."""
     if ctx.channel.id in auto_translate_channels:
         del auto_translate_channels[ctx.channel.id]
-        save_settings() # <-- This was missing, now it's added!
+        save_settings()
         await ctx.respond("✅ Automatic translation has been disabled for this channel.")
     else:
         await ctx.respond("This channel is not configured for automatic translation.", ephemeral=True)
 
+# --- Web Server to Keep Bot Alive on Render (NEW CODE) ---
+app = Flask('')
 
-# --- Bot Execution ---
+@app.route('/')
+def home():
+    return "I'm alive"
+
+def run():
+  app.run(host='0.0.0.0',port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# --- Bot Execution (MODIFIED) ---
 if __name__ == "__main__":
     if BOT_TOKEN is None:
         print("Error: BOT_TOKEN not found in .env file.")
     else:
-        # Use py-cord's run method
+        keep_alive()  # Starts the web server
         bot.run(BOT_TOKEN)
+�
