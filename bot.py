@@ -243,3 +243,4 @@ if __name__ == "__main__":
     else:
         keep_alive()  # Starts the web server
         bot.run(BOT_TOKEN)
+
